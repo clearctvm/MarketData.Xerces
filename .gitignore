@@ -248,7 +248,4 @@ _Pvt_Extensions
 *.sln.iml
 
 # Custom properties for paths of external projects
-/customBuildProperties.props
-
-# Auto generated include file
-src/xercesc/util/Xerces_autoconf_config.hpp
+customBuildProperties.props
