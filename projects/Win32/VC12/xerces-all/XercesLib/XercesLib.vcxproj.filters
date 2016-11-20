@@ -91,9 +91,6 @@
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\ArrayIndexOutOfBoundsException.hpp">
       <Filter>util</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\..\src\xercesc\util\AutoSense.hpp">
-      <Filter>util</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\Base64.hpp">
       <Filter>util</Filter>
     </ClInclude>
@@ -305,9 +302,6 @@
       <Filter>util</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLFloat.hpp">
-      <Filter>util</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLHolder.hpp">
       <Filter>util</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLIBM1047Transcoder.hpp">

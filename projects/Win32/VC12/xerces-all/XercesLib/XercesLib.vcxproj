@@ -693,7 +693,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\ArrayIndexOutOfBoundsException.hpp" />
-    <ClInclude Include="..\..\..\..\..\src\xercesc\util\AutoSense.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\Base64.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\BaseRefVectorOf.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\BinFileInputStream.hpp" />
@@ -827,7 +826,6 @@ copy "%(RootDir)%(Directory)%(Filename).msvc.hpp" "%(FullPath)"
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLException.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLExceptMsgs.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLFloat.hpp" />
-    <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLHolder.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLIBM1047Transcoder.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLIBM1140Transcoder.hpp" />
     <ClInclude Include="..\..\..\..\..\src\xercesc\util\XMLInitializer.hpp" />
