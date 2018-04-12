@@ -169,8 +169,10 @@ public :
       *                      application. Applications must make sure that the
       *                      plugged-in memory manager persist through the call to
       *                      XMLPlatformUtils::Terminate()
+      *
+      * @return initialization counter
       */
-    static void Initialize(const char*          const locale = XMLUni::fgXercescDefaultLocale
+    static long Initialize(const char*          const locale = XMLUni::fgXercescDefaultLocale
                          , const char*          const nlsHome = 0
                          ,       PanicHandler*  const panicHandler = 0
                          ,       MemoryManager* const memoryManager = 0);

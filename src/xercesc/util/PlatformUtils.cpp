@@ -159,11 +159,65 @@ bool                    XMLPlatformUtils::fgSSE2ok = false;
 // ---------------------------------------------------------------------------
 //  XMLPlatformUtils: Init/term methods
 // ---------------------------------------------------------------------------
-void XMLPlatformUtils::Initialize(const char*          const locale
+long XMLPlatformUtils::Initialize(const char*          const locale
                                 , const char*          const nlsHome
                                 ,       PanicHandler*  const panicHandler
                                 ,       MemoryManager* const memoryManager)
 {
+	// BEGIN - THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+
+	if (!fgMemoryManager)
+	{
+		MemoryManager* newMemoryManager = memoryManager;
+		bool newMemMgrAdopted = (memoryManager == nullptr);
+
+		if (!newMemoryManager)
+		{
+			newMemoryManager = new MemoryManagerImpl();
+		}
+
+		MemoryManager* oldMemoryManager = reinterpret_cast<MemoryManager*>(
+			InterlockedCompareExchangePointer(
+				reinterpret_cast<void* volatile *>(std::addressof(fgMemoryManager)),
+				reinterpret_cast<void*>(newMemoryManager), reinterpret_cast<void*>(fgMemoryManager)));
+
+		if (oldMemoryManager == nullptr)
+		{
+			fgMemMgrAdopted = newMemMgrAdopted;
+
+            fgMutexMgr = makeMutexMgr(fgMemoryManager);
+            fgFileMgr = makeFileMgr(fgMemoryManager);
+
+			gSyncMutex = new XMLMutex(fgMemoryManager);
+		}
+		else if (memoryManager == nullptr)
+		{
+			delete newMemoryManager;
+
+			unsigned char count = 0;
+
+			// Spin lock
+			while (InterlockedCompareExchangePointer(reinterpret_cast<void* volatile *>
+				(std::addressof(gSyncMutex)), nullptr, nullptr) == nullptr)
+			{
+				if (count == 0)
+				{
+					Sleep(1);
+				}
+				else
+				{
+					SwitchToThread();
+				}
+
+				++count;
+			}
+		}
+	}
+
+	XMLMutexLock lockSync(gSyncMutex);
+
+	// END - THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+
     //
     //  Effects of overflow:
     //  . resouce re-allocations
@@ -173,8 +227,8 @@ void XMLPlatformUtils::Initialize(const char*          const locale
     //  We got to prevent overflow from happening.
     //  no error or exception
     //
-    if (gInitFlag == LONG_MAX)
-        return;
+	if (gInitFlag == LONG_MAX)
+		return gInitFlag;
 
     //
     //  Make sure we haven't already been initialized. Note that this is not
@@ -185,9 +239,11 @@ void XMLPlatformUtils::Initialize(const char*          const locale
     gInitFlag++;
 
     if (gInitFlag > 1)
-      return;
+		return gInitFlag;
 
-    // Set pluggable memory manager
+    /* THREADSAFETY STARTUP PATCH BY @virgiliofornazin	
+	
+	// Set pluggable memory manager
     if (!fgMemoryManager)
     {
         if (memoryManager)
@@ -199,7 +255,9 @@ void XMLPlatformUtils::Initialize(const char*          const locale
         {
             fgMemoryManager = new MemoryManagerImpl();
         }
-    }
+    } 
+	
+	THREADSAFETY STARTUP PATCH BY @virgiliofornazin */
 
     /***
      * Panic Handler:
@@ -244,13 +302,18 @@ void XMLPlatformUtils::Initialize(const char*          const locale
     fgSSE2ok = false;
 #endif
 
+    /* THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+
     // Initialize the platform-specific mutex and file mgrs
     fgMutexMgr		= makeMutexMgr(fgMemoryManager);
     fgFileMgr		= makeFileMgr(fgMemoryManager);
 
 
-    // Create the local sync mutex
-    gSyncMutex = new XMLMutex(fgMemoryManager);
+	
+	// Create the local sync mutex
+	gSyncMutex = new XMLMutex(fgMemoryManager);
+	
+	THREADSAFETY STARTUP PATCH BY @virgiliofornazin */
 
     // Create the global "atomic operations" mutex.
     fgAtomicMutex = new XMLMutex(fgMemoryManager);
@@ -305,6 +368,8 @@ void XMLPlatformUtils::Initialize(const char*          const locale
     // Initialize static data.
     //
     XMLInitializer::initializeStaticData();
+
+	return gInitFlag;
 }
 
 void XMLPlatformUtils::Initialize(XMLSize_t initialDOMHeapAllocSize
@@ -314,15 +379,21 @@ void XMLPlatformUtils::Initialize(XMLSize_t initialDOMHeapAllocSize
                                 , const char*          const nlsHome
                                 ,       PanicHandler*  const panicHandler
                                 ,       MemoryManager* const memoryManager)
-{
-  Initialize (locale, nlsHome, panicHandler, memoryManager);
+{ 
+  // BEGIN THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+  long initializeCount = Initialize (locale, nlsHome, panicHandler, memoryManager);
 
   // Don't change the parameters unless it is the first time.
   //
-  if (gInitFlag == 1)
-    XMLInitializer::initializeDOMHeap(initialDOMHeapAllocSize,
+  if (/* gInitFlag */ initializeCount == 1)
+  {
+	  XMLMutexLock lockSync(gSyncMutex);
+	  // END THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+
+	  XMLInitializer::initializeDOMHeap(initialDOMHeapAllocSize,
                                       maxDOMHeapAllocSize,
                                       maxDOMSubAllocationSize);
+  }
 }
 
 void XMLPlatformUtils::Terminate()
@@ -333,66 +404,80 @@ void XMLPlatformUtils::Terminate()
     //
     //  no error or exception
     //
-    if (gInitFlag == 0)
+    if (InterlockedExchangeAdd(reinterpret_cast<long volatile *>(std::addressof(gInitFlag)), 0) == 0)
         return;
 
-    gInitFlag--;
+	// THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+	MemoryManager* deleteMemoryManager = nullptr;
+	{ XMLMutexLock lockSync(gSyncMutex);
 
-    if (gInitFlag > 0)
-	return;
+	gInitFlag--;
 
-    // Terminate static data.
-    //
-    XMLInitializer::terminateStaticData();
+	if (gInitFlag > 0)
+		return;
 
-    // Delete any net accessor that got installed
-    delete fgNetAccessor;
-    fgNetAccessor = 0;
+	// Terminate static data.
+	//
+	XMLInitializer::terminateStaticData();
 
-    //
-    //  Call some other internal modules to give them a chance to clean up.
-    //  Do the string class last in case something tries to use it during
-    //  cleanup.
-    //
-    XMLString::termString();
+	// Delete any net accessor that got installed
+	delete fgNetAccessor;
+	fgNetAccessor = 0;
 
-    // Clean up the the transcoding service
-    delete fgTransService;
-    fgTransService = 0;
+	//
+	//  Call some other internal modules to give them a chance to clean up.
+	//  Do the string class last in case something tries to use it during
+	//  cleanup.
+	//
+	XMLString::termString();
 
-    XMLInitializer::terminateTransService(); // TransService static data.
+	// Clean up the the transcoding service
+	delete fgTransService;
+	fgTransService = 0;
 
-    // Clean up mutexes
-    delete gSyncMutex;		gSyncMutex = 0;
-    delete fgAtomicMutex;	fgAtomicMutex = 0;
+	XMLInitializer::terminateTransService(); // TransService static data.
 
-    // Clean up our mgrs
+	// Clean up mutexes
+	// THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+	// delete gSyncMutex;		gSyncMutex = 0;
+	delete fgAtomicMutex;	fgAtomicMutex = 0;
+
+	// Clean up our mgrs
+    /* THREADSAFETY STARTUP PATCH BY @virgiliofornazin
     delete fgFileMgr;		fgFileMgr = 0;
+	delete fgMutexMgr;		fgMutexMgr = 0;
+    THREADSAFETY STARTUP PATCH BY @virgiliofornazin */
+
+	/***
+	 *  de-allocate resource
+	 *
+	 *  refer to discussion in the Initialize()
+	 ***/
+	XMLMsgLoader::setLocale(0);
+	XMLMsgLoader::setNLSHome(0);
+
+	delete fgDefaultPanicHandler;
+	fgDefaultPanicHandler = 0;
+	fgUserPanicHandler = 0;
+
+	// de-allocate default memory manager
+	if (fgMemMgrAdopted)
+		deleteMemoryManager = fgMemoryManager;
+	else
+		fgMemMgrAdopted = true;
+
+	// set memory manager to 0
+	fgMemoryManager = 0;
+
+	// And say we are no longer initialized
+	gInitFlag = 0;
+
+	// THREADSAFETY STARTUP PATCH BY @virgiliofornazin
+	} 
+    delete gSyncMutex;		gSyncMutex = 0;
     delete fgMutexMgr;		fgMutexMgr = 0;
-
-    /***
-     *  de-allocate resource
-     *
-     *  refer to discussion in the Initialize()
-     ***/
-    XMLMsgLoader::setLocale(0);
-    XMLMsgLoader::setNLSHome(0);
-
-    delete fgDefaultPanicHandler;
-    fgDefaultPanicHandler = 0;
-    fgUserPanicHandler = 0;
-
-    // de-allocate default memory manager
-    if (fgMemMgrAdopted)
-        delete fgMemoryManager;
-    else
-        fgMemMgrAdopted = true;
-
-    // set memory manager to 0
-    fgMemoryManager = 0;
-
-    // And say we are no longer initialized
-    gInitFlag = 0;
+    delete fgFileMgr;		fgFileMgr = 0;
+    if (deleteMemoryManager) delete deleteMemoryManager;
 }
 
 
@@ -792,7 +877,7 @@ XMLMsgLoader* XMLPlatformUtils::loadMsgSet(const XMLCh* const msgDomain)
 void XMLPlatformUtils::recognizeNEL(bool state, MemoryManager* const manager) {
 
     //Make sure initialize has been called
-    if (gInitFlag == 0) {
+    if (InterlockedExchangeAdd(reinterpret_cast<long volatile *>(std::addressof(gInitFlag)), 0) == 0) {
         return;
     }
 
@@ -822,7 +907,7 @@ bool XMLPlatformUtils::isNELRecognized() {
 void XMLPlatformUtils::strictIANAEncoding(const bool state) {
 
     //Make sure initialize has been called
-    if (gInitFlag == 0) {
+    if (InterlockedExchangeAdd(reinterpret_cast<long volatile *>(std::addressof(gInitFlag)), 0) == 0) {
         return;
     }
 
@@ -832,7 +917,7 @@ void XMLPlatformUtils::strictIANAEncoding(const bool state) {
 
 bool XMLPlatformUtils::isStrictIANAEncoding() {
 
-    if (gInitFlag)
+    if (InterlockedExchangeAdd(reinterpret_cast<long volatile *>(std::addressof(gInitFlag)), 0))
         return fgTransService->isStrictIANAEncoding();
 
     return false;
